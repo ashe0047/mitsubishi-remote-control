@@ -1,0 +1,78 @@
+// {
+// 	"version": "0.2.0",
+// 	"configurations": [
+// 		{
+// 			"name": "Next.js: debug server-side",
+// 			"type": "node-terminal",
+// 			"request": "launch",
+// 			"command": "npm run dev:https",
+// 			"autoAttachChildProcesses": true
+// 		},
+// 		{
+// 			"name": "Next.js: debug client-side",
+// 			"type": "chrome",
+// 			"request": "launch",
+// 			"preLaunchTask": "npm: dev:https",
+// 			"url": "https://localhost:3000"
+// 		},
+// 		{
+// 			"name": "Next.js: debug full stack",
+// 			"type": "node-terminal",
+// 			"request": "launch",
+// 			"command": "npm run dev:https",
+// 			"serverReadyAction": {
+// 				"action": "debugWithEdge",
+// 				"killOnServerStop": true,
+// 				"webRoot": "${workspaceFolder}",
+// 				"pattern": "- Local:.+(https?://.+)",
+// 				"uriFormat": "%s"
+// 			},
+// 			"autoAttachChildProcesses": true
+// 		},
+// 		{
+// 			"name": "Attach",
+// 			"port": 9230,
+// 			"request": "attach",
+// 			"skipFiles": ["<node_internals>/**"],
+// 			"type": "node"
+// 		}
+// 	]
+// }
+
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Next.js: debug server-side",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "npm run dev:https"
+		},
+		{
+			"name": "Next.js: debug client-side",
+			"type": "chrome",
+			"request": "launch",
+			// "preLaunchTask": "npm: dev:https",
+			"url": "https://localhost:3000",
+			"webRoot": "${workspaceFolder}"
+		},
+		{
+			"name": "Next.js: debug full stack",
+			"type": "node-terminal",
+			"request": "launch",
+			"command": "npm run dev:https",
+			"serverReadyAction": {
+				"pattern": "- Local:.+(https?://.+)",
+				"uriFormat": "%s",
+				"action": "debugWithChrome"
+			}
+		},
+		{
+			"name": "Attach",
+			"port": 9230,
+			"request": "attach",
+			"skipFiles": ["<node_internals>/**"],
+			"type": "node"
+		}
+	]
+}

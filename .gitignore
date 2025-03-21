@@ -10,6 +10,10 @@
 !.yarn/releases
 !.yarn/versions
 
+# Serwist
+public/sw*
+public/swe-worker*
+
 # testing
 /coverage
 
