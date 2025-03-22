@@ -2,10 +2,9 @@
 
 import type React from "react";
 
-import { useCallback, useRef, Dispatch } from "react";
+import { useCallback, useRef } from "react";
 import type { MqttClient } from "mqtt";
 import {
-	AirConSettings,
 	MODE_VALUES,
 	FAN_VALUES,
 	MQTT_TOPICS,
@@ -13,7 +12,6 @@ import {
 	type AirConState,
 	type MqttMessageType,
 	type MqttTopicsType,
-	FAN_SETTINGS_TO_STATE_VALUE_MAP,
 } from "@/lib/mqtt/mqtt-config";
 import { publishCommand } from "@/lib/mqtt/mqtt-client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,23 +47,21 @@ import { useTheme } from "next-themes";
 import { useHaptic } from "@/hooks/use-haptic";
 import useAirConPreferences from "@/hooks/use-prefs";
 import Image from "next/image";
+import { useAirconContext } from "@/hooks/use-aircon";
 
 //TODO: check mode comparison to highligh mode button
 // Implement room based control
 
 interface IAirConRemoteProps {
 	client: { client: MqttClient | null; isConnected: boolean };
-	airconState: [
-		AirConState | AirConSettings | undefined,
-		Dispatch<React.SetStateAction<AirConState | AirConSettings | undefined>>
-	];
 	room: { roomId: string; roomName: string };
 }
 const AirConRemote = ({
 	client: { client, isConnected },
-	airconState: [state, setState],
 	room: { roomId, roomName },
 }: IAirConRemoteProps) => {
+	const { updateState, getAirconForRoom } = useAirconContext();
+	const airconState = getAirconForRoom(roomId)?.state;
 	// Theme mode
 	const { theme, setTheme } = useTheme();
 	const isMobile = useMobile();
@@ -90,16 +86,12 @@ const AirConRemote = ({
 				topic !== MQTT_TOPICS.system &&
 				topic !== MQTT_TOPICS.remoteTemp
 			) {
-				setState((prev) => {
-					if (prev)
-						return {
-							...prev,
-							[topic.split("/")[2] as keyof AirConState]: value,
-						};
+				updateState(roomId, {
+					[topic.split("/")[2] as keyof AirConState]: value,
 				});
 			}
 		},
-		[client, setState]
+		[client, updateState, roomId]
 	);
 
 	// Temperature display helper
@@ -126,9 +118,9 @@ const AirConRemote = ({
 
 	// Temperature increment/decrement handler
 	const handleTemperatureStep = (step: number) => {
-		if (state) {
+		if (airconState) {
 			const newTemp = Math.min(
-				Math.max(state.temperature + step, 16),
+				Math.max(airconState.temperature + step, 16),
 				31
 			);
 			updateAndSend(MQTT_TOPICS.temp, newTemp);
@@ -138,9 +130,9 @@ const AirConRemote = ({
 
 	// Power toggle handler
 	const handlePowerToggle = () => {
-		if (state) {
+		if (airconState) {
 			const newMode =
-				state.mode === MODE_VALUES.OFF
+				airconState.mode === MODE_VALUES.OFF
 					? MODE_VALUES.COOL
 					: MODE_VALUES.OFF;
 			updateAndSend(
@@ -156,18 +148,18 @@ const AirConRemote = ({
 		setPrefs((prev) => ({ ...prev, sleepMode: !prev.sleepMode }));
 
 		// In a real implementation, we would send sleep mode setting to the AC unit
-		if (!prefs.sleepMode && state) {
+		if (!prefs.sleepMode && airconState) {
 			// When enabling sleep mode, adjust settings for comfort
 			updateAndSend(MQTT_TOPICS.fan, FAN_VALUES.ONE);
-			if (state.mode === MODE_VALUES.COOL) {
+			if (airconState.mode === MODE_VALUES.COOL) {
 				updateAndSend(
 					MQTT_TOPICS.temp,
-					Math.min(state.temperature + 2, 31)
+					Math.min(airconState.temperature + 2, 31)
 				);
-			} else if (state.mode === MODE_VALUES.HEAT) {
+			} else if (airconState.mode === MODE_VALUES.HEAT) {
 				updateAndSend(
 					MQTT_TOPICS.temp,
-					Math.max(state.temperature - 2, 16)
+					Math.max(airconState.temperature - 2, 16)
 				);
 			}
 		}
@@ -265,8 +257,8 @@ const AirConRemote = ({
 	const handleTouchMove = (e: React.TouchEvent) => {
 		if (
 			touchStartY.current === null ||
-			!state ||
-			state.mode === MODE_VALUES.OFF
+			!airconState ||
+			airconState.mode === MODE_VALUES.OFF
 		)
 			return;
 
@@ -279,13 +271,13 @@ const AirConRemote = ({
 				// Swipe up - increase temperature
 				updateAndSend(
 					MQTT_TOPICS.temp,
-					Math.min(state.temperature + 1, 31)
+					Math.min(airconState.temperature + 1, 31)
 				);
 			} else {
 				// Swipe down - decrease temperature
 				updateAndSend(
 					MQTT_TOPICS.temp,
-					Math.max(state.temperature - 1, 16)
+					Math.max(airconState.temperature - 1, 16)
 				);
 			}
 			touchStartY.current = touchY;
@@ -298,10 +290,10 @@ const AirConRemote = ({
 		touchStartY.current = null;
 	};
 
-	const isPowerOn = state && state.mode !== MODE_VALUES.OFF;
+	const isPowerOn = airconState && airconState.mode !== MODE_VALUES.OFF;
 
 	return (
-		state && (
+		airconState && (
 			<TooltipProvider delayDuration={300}>
 				<div
 					ref={containerRef}
@@ -395,8 +387,8 @@ const AirConRemote = ({
 									<div className="flex justify-center items-center mb-2">
 										<motion.div
 											key={`room-${
-												"roomTemperature" in state
-													? state.roomTemperature
+												"roomTemperature" in airconState
+													? airconState.roomTemperature
 													: 0
 											}`}
 											initial={{ opacity: 0, y: -10 }}
@@ -406,8 +398,8 @@ const AirConRemote = ({
 										>
 											Room:{" "}
 											{displayTemp(
-												"roomTemperature" in state
-													? state.roomTemperature
+												"roomTemperature" in airconState
+													? airconState.roomTemperature
 													: 0
 											)}
 											°{prefs.useFahrenheit ? "F" : "C"}
@@ -417,7 +409,7 @@ const AirConRemote = ({
 									<div className="relative flex justify-center items-center">
 										<AnimatePresence mode="wait">
 											<motion.div
-												key={`temp-${state.temperature}-${isPowerOn}`}
+												key={`temp-${airconState.temperature}-${isPowerOn}`}
 												initial={{
 													opacity: 0,
 													scale: 0.8,
@@ -435,7 +427,7 @@ const AirConRemote = ({
 											>
 												{isPowerOn
 													? displayTemp(
-															state.temperature
+															airconState.temperature
 													  )
 													: "--"}
 												<span className="text-2xl ml-1">
@@ -460,9 +452,11 @@ const AirConRemote = ({
 												className="flex items-center justify-center mt-2"
 											>
 												<div className="flex items-center gap-1 px-3 py-1 rounded-full bg-muted/50">
-													{getModeIcon(state.mode)}
+													{getModeIcon(
+														airconState.mode
+													)}
 													<span className="text-sm font-medium ml-1">
-														{state.mode}
+														{airconState.mode}
 													</span>
 												</div>
 											</motion.div>
@@ -485,7 +479,8 @@ const AirConRemote = ({
 													}
 													disabled={
 														!isPowerOn ||
-														state.temperature <= 16
+														airconState.temperature <=
+															16
 													}
 													className="h-10 w-10 rounded-full"
 												>
@@ -502,7 +497,7 @@ const AirConRemote = ({
 											min={16}
 											max={31}
 											step={1}
-											value={[state.temperature]}
+											value={[airconState.temperature]}
 											onValueChange={
 												handleTemperatureChange
 											}
@@ -522,7 +517,8 @@ const AirConRemote = ({
 													}
 													disabled={
 														!isPowerOn ||
-														state.temperature >= 31
+														airconState.temperature >=
+															31
 													}
 													className="h-10 w-10 rounded-full"
 												>
@@ -595,7 +591,7 @@ const AirConRemote = ({
 																}
 																className={cn(
 																	"h-12 w-full rounded-lg transition-all duration-200",
-																	state.mode ===
+																	airconState.mode ===
 																		mode &&
 																		getModeColor(
 																			mode
@@ -625,19 +621,36 @@ const AirConRemote = ({
 									</h3>
 									<div className="grid grid-cols-6 gap-1">
 										{VALID_VALUES.fan
-											.filter(
-												(speed) =>
-													![
-														"auto",
-														"low",
-														"middle",
-														"medium",
-														"high",
-														"diffuse",
-													].includes(speed)
-											)
-											.map((speed) => (
-												<Tooltip key={speed}>
+											.reduce<
+												(typeof VALID_VALUES.fan)[number][][]
+											>((acc, speed, ind) => {
+												const midInd =
+													VALID_VALUES.fan.length / 2;
+												if (ind < midInd) {
+													acc.push([
+														VALID_VALUES.fan[
+															ind
+														] as (typeof VALID_VALUES.fan)[number],
+														VALID_VALUES.fan[
+															midInd + ind
+														] as (typeof VALID_VALUES.fan)[number],
+													]);
+												}
+												return acc;
+											}, [])
+											// .filter(
+											// 	(speed) =>
+											// 		![
+											// 			"auto",
+											// 			"low",
+											// 			"middle",
+											// 			"medium",
+											// 			"high",
+											// 			"diffuse",
+											// 		].includes(speed)
+											// )
+											.map((speed, ind) => (
+												<Tooltip key={ind}>
 													<TooltipTrigger asChild>
 														<motion.div
 															whileTap={{
@@ -650,7 +663,7 @@ const AirConRemote = ({
 																size="sm"
 																onClick={() =>
 																	handleFanChange(
-																		speed as MqttMessageType<
+																		speed[0] as MqttMessageType<
 																			typeof MQTT_TOPICS.fan
 																		>
 																	)
@@ -660,25 +673,24 @@ const AirConRemote = ({
 																}
 																className={cn(
 																	"h-10 w-full rounded-lg p-0 shadow-sm",
-																	FAN_SETTINGS_TO_STATE_VALUE_MAP[
-																		state.fan as keyof typeof FAN_SETTINGS_TO_STATE_VALUE_MAP
-																	] ===
-																		speed &&
+																	speed.includes(
+																		airconState.fan
+																	) &&
 																		"bg-primary text-primary-foreground"
 																)}
 															>
 																<span className="text-xs">
-																	{speed ===
+																	{speed[0] ===
 																	"QUIET"
 																		? "Q"
-																		: speed}
+																		: speed[0]}
 																</span>
 															</Button>
 														</motion.div>
 													</TooltipTrigger>
 													<TooltipContent>
 														{getFanTooltipDisplay(
-															speed
+															speed[0]
 														)}
 													</TooltipContent>
 												</Tooltip>

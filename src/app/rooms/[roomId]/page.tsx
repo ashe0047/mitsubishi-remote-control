@@ -1,41 +1,29 @@
 "use client";
 
 import AirConRemote from "@/components/AirConRemote";
-import { useState } from "react";
-import { ThemeProvider } from "next-themes";
-import useMQTTClient from "@/hooks/use-mqtt";
-import { AirConSettings, AirConState } from "@/lib/mqtt/mqtt-config";
-import appConfig from "@/lib/config";
-import { notFound } from "next/navigation";
+import { notFound, useParams } from "next/navigation";
+import { useAirconContext } from "@/hooks/use-aircon";
+import { useContext } from "react";
+import AppConfigContext from "@/components/AppConfig";
 
-interface RoomPageProps {
-	params: {
+export default function RoomPage() {
+	const { roomId } = useParams<{
 		roomId: string;
-	};
-}
-
-export default function RoomPage({ params }: RoomPageProps) {
-	const room = appConfig.rooms.find((room) => room.roomId === params.roomId);
+	}>();
+	const appConfig = useContext(AppConfigContext);
+	if (!appConfig) {
+		notFound();
+	}
+	const room = appConfig.rooms.find((room) => room.roomId === roomId);
 
 	if (!room) {
 		notFound();
 	}
 
-	const [state, setState] = useState<
-		AirConState | AirConSettings | undefined
-	>(undefined);
-	const [isConnected, setIsConnected] = useState(false);
-	// MQTT client via custom hook
-	const client = useMQTTClient(setState, setIsConnected);
+	const { client, isConnected } = useAirconContext();
 	return (
-		<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-			<main>
-				<AirConRemote
-					room={room}
-					client={{ client, isConnected }}
-					airconState={[state, setState]}
-				/>
-			</main>
-		</ThemeProvider>
+		<main>
+			<AirConRemote room={room} client={{ client, isConnected }} />
+		</main>
 	);
 }

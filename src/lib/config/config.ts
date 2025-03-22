@@ -2,7 +2,8 @@
 import fs from "fs";
 import { parse } from "yaml";
 import { z } from "zod";
-import envData from "./env/config";
+import envData from "../env/config";
+import path from "path";
 
 // Define the structure of your configuration with a TypeScript interface
 const appConfigSchema = z.object({
@@ -19,7 +20,8 @@ export type AppConfig = z.infer<typeof appConfigSchema>;
 function loadConfig(): AppConfig {
 	try {
 		const fileContents = fs.readFileSync(
-			envData.APP_CONFIG_PATH,
+			envData.APP_CONFIG_PATH ||
+				path.join(process.cwd(), "config", "app-config.yaml"),
 			"utf8"
 		);
 		const config = appConfigSchema.safeParse(parse(fileContents));

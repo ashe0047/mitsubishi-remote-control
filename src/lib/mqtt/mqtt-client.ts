@@ -1,22 +1,24 @@
 "use client";
 // lib/mqttClient.ts
-import mqtt, { MqttClient } from "mqtt";
+import mqtt, {
+	MqttClient,
+	OnCloseCallback,
+	OnMessageCallback,
+} from "mqtt";
+import { fromEvent, Observable } from "rxjs";
+import { map, share, takeUntil } from "rxjs/operators";
 import {
 	MQTT_TOPICS,
 	mqttMessageSchemas,
 	MqttMessageType,
-	AirConState,
 	MqttTopicsType,
-	AirConSettings,
 } from "@/lib/mqtt/mqtt-config";
 import envData from "../env/config";
 
 export const initializeMQTTClient = (
-	onStateReceived: (
-		state: React.SetStateAction<AirConState | AirConSettings | undefined>
-	) => void,
+	
 	onConnectionStatus: (connected: boolean) => void
-): MqttClient => {
+) => {
 	const client = mqtt.connect({
 		protocol: "mqtt",
 		host: envData.MQTT_BROKER_URL,
@@ -37,47 +39,50 @@ export const initializeMQTTClient = (
 		);
 	});
 
-	client.on("message", (topic, message) => {
-		if (topic === MQTT_TOPICS.settings) {
-			try {
-				const parsed = mqttMessageSchemas[MQTT_TOPICS.settings].parse(
-					JSON.parse(message.toString())
-				);
-				onStateReceived(parsed);
-			} catch (error) {
-				console.error("Invalid state received:", error);
-			}
-		} else if (topic === MQTT_TOPICS.state) {
-			try {
-				const parsed = mqttMessageSchemas[MQTT_TOPICS.state].parse(
-					JSON.parse(message.toString())
-				);
-				onStateReceived((prev) => {
-					if (prev) {
-						console.log("prev", prev);
-						console.log("parsed", parsed);
-						return {
-							...parsed,
-							roomTemperature:
-								parsed.roomTemperature === -1 &&
-								"roomTemperature" in prev
-									? prev?.roomTemperature
-									: parsed.roomTemperature,
-						};
-					}
-				});
-			} catch (error) {
-				console.error("Invalid state received:", error);
-			}
-		}
-	});
-
 	client.on("error", (err) => {
 		console.error("MQTT error:", err);
 		onConnectionStatus(false);
 	});
 
-	return client;
+	// Create the stream using fromEvent with validation and error handling in map
+	const genericMqttStream$ = fromEvent(
+		client,
+		"message"
+	) as unknown as Observable<Parameters<OnMessageCallback>>;
+	const genericMqttStreamUnsubscribe$ = fromEvent(
+		client,
+		"close"
+	) as unknown as Observable<Parameters<OnCloseCallback>>;
+	const airconStream$ = genericMqttStream$
+		.pipe(takeUntil(genericMqttStreamUnsubscribe$))
+		.pipe(
+			map(([topic, message]) => {
+				try {
+					const parsedMessage = 
+					JSON.parse(message.toString());
+					if (topic === MQTT_TOPICS.settings) {
+						const parsed =
+							mqttMessageSchemas[MQTT_TOPICS.settings].parse(
+								parsedMessage
+							);
+						return { topic, message: parsed };
+					} else if (topic === MQTT_TOPICS.state) {
+						const parsed =
+							mqttMessageSchemas[MQTT_TOPICS.state].parse(
+								parsedMessage
+							);
+						return { topic, message: parsed };
+					}
+					throw new Error('Message must be either Settings/State') // Skip if topic doesn't match expected ones
+				} catch (error) {
+					console.error("Invalid message received:", error);
+					return null; // Return null for invalid messages
+				}
+			}),
+			share() // Share the stream among multiple subscribers
+		);
+
+	return { client, airconStream$ };
 };
 
 export const publishCommand = <Topic extends MqttTopicsType>(

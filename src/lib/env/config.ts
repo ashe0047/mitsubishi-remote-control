@@ -15,7 +15,7 @@ const envSchema = z.object({
 	MQTT_BROKER_PORT: z.string().transform((val) => parseInt(val)),
 	MQTT_BROKER_USERNAME: z.string(),
 	MQTT_BROKER_PASSWORD: z.string(),
-	APP_CONFIG_PATH: z.string(),
+	APP_CONFIG_PATH: z.string().optional(),
 });
 
 const unvalidatedEnv = {

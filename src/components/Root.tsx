@@ -1,17 +1,22 @@
 "use client";
 import { ThemeProvider } from "next-themes";
-import { PropsWithChildren, useEffect, useState } from "react";
+import { PropsWithChildren } from "react";
+import { AirconContextProvider } from "./AirconProvider";
+import { AppConfig } from "@/lib/config/config";
+import AppConfigContext from "./AppConfig";
+import useIsMounted from "@/hooks/use-mounted";
 
-function Root({ children }: PropsWithChildren) {
-	const [mounted, setMounted] = useState(false);
-	// Handle theme mounting
-	useEffect(() => {
-		setMounted(true);
-	}, []);
+interface RootProps extends PropsWithChildren {
+	appConfig: AppConfig;
+}
+function Root({ children, appConfig }: RootProps) {
+	const isMounted = useIsMounted();
 	return (
-		mounted && (
+		isMounted && (
 			<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-				{children}
+				<AppConfigContext.Provider value={appConfig}>
+					<AirconContextProvider>{children}</AirconContextProvider>
+				</AppConfigContext.Provider>
 			</ThemeProvider>
 		)
 	);
