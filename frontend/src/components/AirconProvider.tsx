@@ -100,6 +100,25 @@ export const ApiAirconProvider: React.FC<ApiAirconProviderProps> = ({
                 state.updateRoomSettings(payload.roomId, derivedSettings);
               }
             }
+
+            // Explicitly mark data types as received based on payload content
+            // This handles cases where applyRoomStatusUpdate doesn't call update methods
+            if (payload.state) {
+              state.markRoomStateReceived(payload.roomId);
+            }
+            if (payload.settings) {
+              state.markRoomSettingsReceived(payload.roomId);
+            }
+            if (payload.deviceUpdates && payload.deviceUpdates.length > 0) {
+              state.markRoomDevicesReceived(payload.roomId);
+            }
+
+            console.debug('AirconProvider: Data timestamps marked', {
+              roomId: payload.roomId,
+              hasState: !!payload.state,
+              hasSettings: !!payload.settings,
+              hasDevices: (payload.deviceUpdates?.length ?? 0) > 0,
+            });
           }
           break;
         case 'mqtt-status':
