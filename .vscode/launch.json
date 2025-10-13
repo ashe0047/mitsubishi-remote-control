@@ -38,10 +38,16 @@
 // 		}
 // 	]
 // }
-
 {
 	"version": "0.2.0",
 	"configurations": [
+		{
+			"type": "java",
+			"name": "Attach to Spring Boot",
+			"request": "attach",
+			"hostName": "localhost",
+			"port": 5005
+		},
 		{
 			"name": "Next.js: debug server-side",
 			"type": "node-terminal",
@@ -71,7 +77,9 @@
 			"name": "Attach",
 			"port": 9230,
 			"request": "attach",
-			"skipFiles": ["<node_internals>/**"],
+			"skipFiles": [
+				"<node_internals>/**"
+			],
 			"type": "node"
 		}
 	]
