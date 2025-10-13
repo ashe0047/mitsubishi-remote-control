@@ -604,7 +604,7 @@ export const UsageSessionSchema = z.object({
 export const DeviceControlResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
-  roomId: z.string().uuid(),
+  roomId: z.string().min(1), // Allow roomIdentifier or UUID
   deviceId: z.string(),
   action: z.string(),
   updatedRoom: RoomSchema.optional(),
