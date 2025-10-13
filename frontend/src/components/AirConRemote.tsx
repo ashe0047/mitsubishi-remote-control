@@ -48,6 +48,8 @@ import {
   getFanDisplayName,
   displayTemperature,
 } from "@/utils/devices";
+import { useLoadingState } from "@/hooks/useLoadingState";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface IApiAirConRemoteProps {
   room: { roomId: string; roomName: string };
@@ -65,6 +67,14 @@ const ApiAirConRemote = ({
 
   const roomInfo = getRoomInfo(roomId);
   const airconState = roomInfo?.state;
+
+  // Use loading state hook
+  const {
+    canShowControls,
+    hasStateData,
+    canInteract,
+    isInitialLoading,
+  } = useLoadingState(roomId);
 
   // Device selection for multi-device rooms
   const {
@@ -197,13 +207,13 @@ const ApiAirConRemote = ({
 
   const isPowerOn = airconState && airconState.mode !== MODE_VALUES.OFF;
 
-  // Loading state
-  if (!roomInfo) {
+  // Show connection error if not connected
+  if (!canShowControls) {
     return (
       <div className="flex justify-center items-center min-h-screen w-full">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading room data...</p>
+          <p className="text-muted-foreground">Connecting to room...</p>
         </div>
       </div>
     );
@@ -344,15 +354,11 @@ const ApiAirConRemote = ({
           )}
 
           <CardContent className="p-6">
-            {!airconState ? (
-              <div className="text-center py-12">
-                <p className="text-muted-foreground">No data available for this room</p>
-              </div>
-            ) : (
-              <>
-                {/* Temperature Display */}
-                <div className="mb-8 text-center">
-                  <div className="flex justify-center items-center mb-2">
+            <>
+              {/* Temperature Display */}
+              <div className="mb-8 text-center">
+                <div className="flex justify-center items-center mb-2">
+                  {hasStateData && airconState ? (
                     <motion.div
                       key={`room-${"roomTemperature" in airconState ? airconState.roomTemperature : 0}`}
                       initial={{ opacity: 0, y: -10 }}
@@ -364,9 +370,13 @@ const ApiAirConRemote = ({
                       {displayTemp("roomTemperature" in airconState ? airconState.roomTemperature : 0)}
                       °{prefs.useFahrenheit ? "F" : "C"}
                     </motion.div>
-                  </div>
+                  ) : (
+                    <Skeleton className="h-5 w-28" />
+                  )}
+                </div>
 
-                  <div className="relative flex justify-center items-center">
+                <div className="relative flex justify-center items-center">
+                  {hasStateData && airconState ? (
                     <AnimatePresence mode="wait">
                       <motion.div
                         key={`temp-${airconState.temperature}-${isPowerOn}`}
@@ -382,27 +392,30 @@ const ApiAirConRemote = ({
                         </span>
                       </motion.div>
                     </AnimatePresence>
-                  </div>
-
-                  <AnimatePresence>
-                    {isPowerOn && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 10 }}
-                        transition={{ duration: 0.3, delay: 0.1 }}
-                        className="flex items-center justify-center mt-2"
-                      >
-                        <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-muted/50">
-                          {getModeIcon(airconState.mode)}
-                          <span className="text-sm font-medium ml-1">
-                            {airconState.mode}
-                          </span>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  ) : (
+                    <Skeleton className="h-20 w-48" />
+                  )}
                 </div>
+
+                <AnimatePresence>
+                  {isPowerOn && hasStateData && airconState && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      className="flex items-center justify-center mt-2"
+                    >
+                      <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-muted/50">
+                        {getModeIcon(airconState.mode)}
+                        <span className="text-sm font-medium ml-1">
+                          {airconState.mode}
+                        </span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
                 {/* Temperature Controls */}
                 <div className="mb-8">
@@ -413,7 +426,7 @@ const ApiAirConRemote = ({
                           variant="outline"
                           size="icon"
                           onClick={() => handleTemperatureStep(-1)}
-                          disabled={!isPowerOn || airconState.temperature <= 16}
+                          disabled={!canInteract || !isPowerOn || (airconState?.temperature ?? 16) <= 16}
                           className="h-10 w-10 rounded-full"
                         >
                           <Minus className="h-4 w-4" />
@@ -423,15 +436,15 @@ const ApiAirConRemote = ({
                     </Tooltip>
 
                     <Slider
-                      disabled={!isPowerOn}
+                      disabled={!canInteract || !isPowerOn}
                       min={16}
                       max={31}
                       step={1}
-                      value={[airconState.temperature]}
+                      value={[airconState?.temperature ?? 24]}
                       onValueChange={handleTemperatureChange}
                       className={cn(
                         "w-[60%] cursor-pointer transition-opacity duration-200",
-                        !isPowerOn && "opacity-50"
+                        (!canInteract || !isPowerOn) && "opacity-50"
                       )}
                     />
 
@@ -441,7 +454,7 @@ const ApiAirConRemote = ({
                           variant="outline"
                           size="icon"
                           onClick={() => handleTemperatureStep(1)}
-                          disabled={!isPowerOn || airconState.temperature >= 31}
+                          disabled={!canInteract || !isPowerOn || (airconState?.temperature ?? 31) >= 31}
                           className="h-10 w-10 rounded-full"
                         >
                           <Plus className="h-4 w-4" />
@@ -463,6 +476,7 @@ const ApiAirConRemote = ({
                     <Button
                       size="lg"
                       onClick={handlePowerToggle}
+                      disabled={!canInteract}
                       className={cn(
                         "rounded-full w-16 h-16 transition-all duration-300 shadow-lg",
                         isPowerOn
@@ -494,10 +508,10 @@ const ApiAirConRemote = ({
                                 variant="outline"
                                 size="icon"
                                 onClick={() => handleModeChange(mode)}
-                                disabled={!isPowerOn}
+                                disabled={!canInteract || !isPowerOn}
                                 className={cn(
                                   "h-12 w-full rounded-lg transition-all duration-200",
-                                  airconState.mode === mode && getModeColor(mode)
+                                  airconState?.mode === mode && getModeColor(mode)
                                 )}
                               >
                                 {getModeIcon(mode)}
@@ -537,10 +551,10 @@ const ApiAirConRemote = ({
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handleFanChange(firstSpeed)}
-                                  disabled={!isPowerOn}
+                                  disabled={!canInteract || !isPowerOn}
                                   className={cn(
                                     "h-10 w-full rounded-lg p-0 shadow-sm",
-                                    speed.includes(airconState.fan) &&
+                                    airconState && speed.includes(airconState.fan) &&
                                     "bg-primary text-primary-foreground"
                                   )}
                                 >
@@ -564,7 +578,7 @@ const ApiAirConRemote = ({
                       id="sleep-mode"
                       checked={prefs.sleepMode}
                       onCheckedChange={handleSleepModeToggle}
-                      disabled={!isPowerOn}
+                      disabled={!canInteract || !isPowerOn}
                     />
                     <label
                       htmlFor="sleep-mode"
@@ -576,7 +590,6 @@ const ApiAirConRemote = ({
                   </div>
                 </div>
               </>
-            )}
           </CardContent>
 
           <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
