@@ -16,6 +16,24 @@ type RoomsType = Record<string, RoomInfo>;
 
 type ControlParams = Record<string, any>;
 
+/**
+ * Tracks when data was received for a specific room.
+ * Used to determine loading state independently of connection status.
+ */
+export interface RoomDataTimestamps {
+  /** Timestamp when state (temperature, mode, etc.) was received */
+  stateReceived: number | null;
+
+  /** Timestamp when settings (configuration) were received */
+  settingsReceived: number | null;
+
+  /** Timestamp when device list was received */
+  devicesReceived: number | null;
+
+  /** Timestamp of first message of any type (used for timeout logic) */
+  firstMessageReceived: number | null;
+}
+
 const FAN_SPEED_MAP: Record<string, string> = {
   auto: "AUTO",
   quiet: "QUIET",
@@ -282,6 +300,54 @@ export interface ApiAirconStoreState extends ApiAirconProps {
 
   // WebSocket stream
   websocketStream$?: Observable<WSMessage>;
+
+  // ===== LOADING STATE TRACKING =====
+
+  /**
+   * Tracks when data was received for each room.
+   * Key: roomId, Value: timestamp record
+   */
+  roomDataTimestamps: Record<string, RoomDataTimestamps>;
+
+  /**
+   * Mark that room state data was received.
+   * Called when updateRoomState() processes a message.
+   */
+  markRoomStateReceived: (roomId: string) => void;
+
+  /**
+   * Mark that room settings data was received.
+   * Called when updateRoomSettings() processes a message.
+   */
+  markRoomSettingsReceived: (roomId: string) => void;
+
+  /**
+   * Mark that device list was received for room.
+   * Called when room info includes devices array.
+   */
+  markRoomDevicesReceived: (roomId: string) => void;
+
+  /**
+   * Check if room has received ANY data (state, settings, or devices).
+   * @returns true if any data type has been received
+   */
+  hasReceivedRoomData: (roomId: string) => boolean;
+
+  /**
+   * Check if room has received state data specifically.
+   */
+  hasReceivedRoomState: (roomId: string) => boolean;
+
+  /**
+   * Check if room has received settings data specifically.
+   */
+  hasReceivedRoomSettings: (roomId: string) => boolean;
+
+  /**
+   * Get age of room data in milliseconds since first message.
+   * @returns milliseconds since first data, or null if no data received
+   */
+  getRoomDataAge: (roomId: string) => number | null;
 }
 
 export type ApiAirconStore = ReturnType<typeof createApiAirconStore>;
@@ -310,6 +376,112 @@ const createApiAirconStore = (initProps?: Partial<ApiAirconProps>) => {
     isDiscoveringRooms: false,
     roomDiscoveryError: null,
     roomsLastUpdated: null,
+
+    // Loading state tracking initialization
+    roomDataTimestamps: {},
+
+    // Loading state tracking methods
+    markRoomStateReceived: (roomId) => {
+      set((state) => {
+        const timestamps = state.roomDataTimestamps[roomId] ?? {
+          stateReceived: null,
+          settingsReceived: null,
+          devicesReceived: null,
+          firstMessageReceived: null,
+        };
+
+        const now = Date.now();
+
+        return {
+          roomDataTimestamps: {
+            ...state.roomDataTimestamps,
+            [roomId]: {
+              ...timestamps,
+              stateReceived: now,
+              firstMessageReceived: timestamps.firstMessageReceived ?? now,
+            },
+          },
+        };
+      });
+    },
+
+    markRoomSettingsReceived: (roomId) => {
+      set((state) => {
+        const timestamps = state.roomDataTimestamps[roomId] ?? {
+          stateReceived: null,
+          settingsReceived: null,
+          devicesReceived: null,
+          firstMessageReceived: null,
+        };
+
+        const now = Date.now();
+
+        return {
+          roomDataTimestamps: {
+            ...state.roomDataTimestamps,
+            [roomId]: {
+              ...timestamps,
+              settingsReceived: now,
+              firstMessageReceived: timestamps.firstMessageReceived ?? now,
+            },
+          },
+        };
+      });
+    },
+
+    markRoomDevicesReceived: (roomId) => {
+      set((state) => {
+        const timestamps = state.roomDataTimestamps[roomId] ?? {
+          stateReceived: null,
+          settingsReceived: null,
+          devicesReceived: null,
+          firstMessageReceived: null,
+        };
+
+        const now = Date.now();
+
+        return {
+          roomDataTimestamps: {
+            ...state.roomDataTimestamps,
+            [roomId]: {
+              ...timestamps,
+              devicesReceived: now,
+              firstMessageReceived: timestamps.firstMessageReceived ?? now,
+            },
+          },
+        };
+      });
+    },
+
+    hasReceivedRoomData: (roomId) => {
+      const timestamps = get().roomDataTimestamps[roomId];
+      if (!timestamps) return false;
+
+      return (
+        timestamps.stateReceived !== null ||
+        timestamps.settingsReceived !== null ||
+        timestamps.devicesReceived !== null
+      );
+    },
+
+    hasReceivedRoomState: (roomId) => {
+      const timestamps = get().roomDataTimestamps[roomId];
+      return timestamps?.stateReceived !== null;
+    },
+
+    hasReceivedRoomSettings: (roomId) => {
+      const timestamps = get().roomDataTimestamps[roomId];
+      return timestamps?.settingsReceived !== null;
+    },
+
+    getRoomDataAge: (roomId) => {
+      const timestamps = get().roomDataTimestamps[roomId];
+      const firstReceived = timestamps?.firstMessageReceived;
+
+      if (!firstReceived) return null;
+
+      return Date.now() - firstReceived;
+    },
 
     setIsConnected: (connected) => {
       set({ isConnected: connected });
@@ -342,8 +514,13 @@ const createApiAirconStore = (initProps?: Partial<ApiAirconProps>) => {
         rooms[room.id] = room;
         // Subscribe to this room's WebSocket state stream
         websocketClient.subscribeToRoomState(room.id);
+
+        // Track that devices were received if available
+        if (room.devices && room.devices.length > 0) {
+          get().markRoomDevicesReceived(room.id);
+        }
       });
-      set({ 
+      set({
         rooms,
         isDiscoveringRooms: false,
         roomDiscoveryError: null,
@@ -356,6 +533,9 @@ const createApiAirconStore = (initProps?: Partial<ApiAirconProps>) => {
       if (rooms[roomId]) {
         rooms[roomId] = { ...rooms[roomId], state };
         set({ rooms: { ...rooms } });
+
+        // Track that state was received
+        get().markRoomStateReceived(roomId);
       }
     },
 
@@ -364,6 +544,9 @@ const createApiAirconStore = (initProps?: Partial<ApiAirconProps>) => {
       if (rooms[roomId]) {
         rooms[roomId] = { ...rooms[roomId], settings };
         set({ rooms: { ...rooms } });
+
+        // Track that settings were received
+        get().markRoomSettingsReceived(roomId);
       }
     },
 
