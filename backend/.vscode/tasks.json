@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "start:debug",
+      "problemMatcher": ["$tsc"],
+      "label": "npm: start:debug",
+      "detail": "nest start --debug --watch",
+      "isBackground": true,
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "type": "npm",
+      "script": "start:dev",
+      "problemMatcher": ["$tsc"],
+      "label": "npm: start:dev",
+      "detail": "nest start --watch",
+      "isBackground": true
+    },
+    {
+      "type": "npm",
+      "script": "build",
+      "problemMatcher": ["$tsc"],
+      "label": "npm: build",
+      "detail": "nest build",
+      "group": "build"
+    }
+  ]
+}
