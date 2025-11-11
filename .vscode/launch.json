@@ -81,6 +81,81 @@
 				"<node_internals>/**"
 			],
 			"type": "node"
+		},
+		// NestJS
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "Debug NestJS (Launch)",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"start:debug"
+			],
+			"autoAttachChildProcesses": true,
+			"restart": true,
+			"sourceMaps": true,
+			"stopOnEntry": false,
+			"console": "integratedTerminal",
+			"env": {
+				"NODE_ENV": "development"
+			},
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js"
+			],
+			"skipFiles": [
+				"<node_internals>/**"
+			],
+			"resolveSourceMapLocations": [
+				"${workspaceFolder}/**",
+				"!**/node_modules/**"
+			]
+		},
+		{
+			"type": "node",
+			"request": "attach",
+			"name": "Debug NestJS (Attach)",
+			"port": 9229,
+			"restart": true,
+			"sourceMaps": true,
+			"localRoot": "${workspaceFolder}",
+			"remoteRoot": "${workspaceFolder}",
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js"
+			],
+			"skipFiles": [
+				"<node_internals>/**"
+			],
+			"resolveSourceMapLocations": [
+				"${workspaceFolder}/**",
+				"!**/node_modules/**"
+			]
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "Debug NestJS Tests",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"test:debug"
+			],
+			"autoAttachChildProcesses": true,
+			"sourceMaps": true,
+			"console": "integratedTerminal",
+			"env": {
+				"NODE_ENV": "test"
+			},
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js"
+			],
+			"skipFiles": [
+				"<node_internals>/**"
+			],
+			"resolveSourceMapLocations": [
+				"${workspaceFolder}/**",
+				"!**/node_modules/**"
+			]
 		}
 	]
 }

@@ -4,7 +4,7 @@ This file provides guidance to Codex (OpenAI Codex CLI agents) when working with
 
 ## Project Overview
 
-This is the **Mitsubishi AC Control Platform**, a full-stack system that pairs a Next.js 15 / React 19 progressive web application with the Spring Boot "Turing" services. The platform orchestrates Mitsubishi HVAC units through MQTT, augments control with real-time WebSocket channels, and layers in household management, quota governance, authentication, and analytics workflows.
+This is the **Mitsubishi AC Control Platform**, a full-stack system that pairs a Next.js 15 / React 19 progressive web application with the NestJS "Turing" services. The platform orchestrates Mitsubishi HVAC units through MQTT, augments control with real-time WebSocket channels, and layers in household management, quota governance, authentication, and analytics workflows.
 
 Key capabilities:
 - multi-room AC control powered by MQTT topics plus REST-backed room and device catalogs
@@ -27,13 +27,16 @@ pnpm dlx vitest --config vitest.config.quota.ts            # Unit/integration te
 pnpm dlx vitest --config vitest.config.quota.ts --runInBand --coverage  # Coverage run
 ```
 
-**Backend (Turing Spring Boot services, `/backend/turing`)**:
+**Backend (NestJS services, `/backend`)**:
 ```bash
-./mvnw spring-boot:run                               # Launch API + WebSocket gateway on :8081
-./mvnw clean verify                                  # Full build with tests
-./mvnw test                                          # Backend unit/integration tests
-./mvnw package                                       # Package fat JAR to target/
-./mvnw spring-boot:run -Dspring-boot.run.profiles=quota    # Enable quota profile locally
+pnpm install                                         # Install dependencies
+pnpm start:dev                                       # Launch API on :8081 (default)
+pnpm build && pnpm start:prod                        # Production build + run
+pnpm test                                            # Unit tests (Jest)
+pnpm test:e2e                                        # E2E tests
+pnpm test:cov                                        # Coverage run
+pnpm lint                                            # Linting
+pnpm format                                          # Format code
 ```
 
 **Tooling & Docker**:
@@ -41,9 +44,10 @@ pnpm dlx vitest --config vitest.config.quota.ts --runInBand --coverage  # Covera
 # Frontend container (from /frontend)
 docker compose -f compose.yaml up --build
 
-# Backend container expects a packaged jar in target/ (from /backend/turing)
-./mvnw package
-docker compose -f compose.yaml up --build
+# Backend (from /backend) — containerization TBD
+# Use pnpm scripts to build and run locally
+pnpm build
+pnpm start:prod
 
 # Quota simulation helpers
 ./scripts/manual-quota-testing.sh           # Launches MQTT + quota message exerciser
@@ -59,11 +63,12 @@ pnpm lint                                                       # Static analysi
 pnpm exec tsc --noEmit                                          # Type safety gate
 ```
 
-**Backend (from `/backend/turing`)**:
+**Backend (from `/backend`)**:
 ```bash
-./mvnw test                                         # Unit + integration tests
-./mvnw verify                                       # Includes Flyway + contract tests
-./mvnw test -Dtest=com.ashelabs.turing.*Tests       # Targeted suites by package
+pnpm test                                           # Unit tests
+pnpm test:e2e                                       # E2E tests
+pnpm test:cov                                       # Coverage reporting
+pnpm build                                          # Build artifacts
 ```
 
 **Integration & Diagnostics**:
@@ -92,11 +97,11 @@ pnpm exec tsc --noEmit                                          # Type safety ga
 - **PWA**: Serwist-powered service worker with runtime cleanup via `ServiceWorkerCleaner`
 
 **Backend**:
-- **Framework**: Spring Boot 3.5.5 (Java 21) with reactive WebSocket support and R2DBC persistence
-- **Architecture**: Layered modules (`domain`, `application`, `service`, `controller`, `websocket`, `infrastructure`) plus command-based WebSocket handlers
-- **Messaging**: MQTT integration for device control, Redis for quota caching, and JWT-secured WebSocket endpoints
-- **Persistence & Migrations**: Postgres via R2DBC, schema maintained through Flyway migrations under `src/main/resources/db`
-- **Observability**: Actuator endpoints (health, metrics, Prometheus) and structured logging with configurable levels
+- **Framework**: NestJS 11 (TypeScript) with Socket.IO WebSocket support and TypeORM persistence
+- **Architecture**: Modular Nest modules (AppConfigModule, DatabaseModule, RedisModule, MqttModule, HealthModule), controllers, and providers
+- **Messaging**: MQTT via mqtt.js for device control, Redis for quota caching, and JWT-secured REST/WebSocket endpoints (via Nest guards)
+- **Persistence & Migrations**: Postgres via TypeORM; migrations supported but not present in this repo
+- **Observability**: Terminus health endpoints (`/health`, `/health/database`, `/health/redis`, `/health/mqtt`) and structured Nest logger configuration
 
 ### Directory Structure
 ```
@@ -133,24 +138,18 @@ frontend/
 ├── Dockerfile                 # Frontend container build
 └── start.sh                   # Convenience start script
 
-backend/turing/
-├── src/main/java/com/ashelabs/turing/
-│   ├── application/           # Use cases & orchestration services
-│   ├── api/                   # DTOs and API contracts
-│   ├── controller/            # REST controllers (rooms, devices, quota, auth, analytics)
-│   ├── websocket/             # Command-based handlers + JWT auth decorator
-│   ├── service/               # Domain services (quota, room, usage, family)
-│   ├── repository/            # Reactive repositories & query adapters
-│   ├── domain/                # Aggregates, events, and domain models
-│   ├── infrastructure/        # MQTT adapters, redis integrations, protocol bridges
-│   └── config/                # Application, WebSocket, Redis, and security config
-├── src/main/resources/
-│   ├── application.properties # Base config (delegates to profiles)
-│   ├── application-dev.properties
-│   ├── application-quota.yml
-│   └── db/migration/          # Flyway migrations
-├── compose.yaml               # Backend container (expects packaged jar)
-└── pom.xml                    # Maven build definition
+backend/
+├── src/
+│   ├── common/config/         # app, database, redis, mqtt, jwt, websocket, quota configs
+│   ├── shared/database/       # TypeORM database module + health indicator
+│   ├── shared/redis/          # ioredis module + health indicator
+│   ├── shared/mqtt/           # mqtt.js module + health indicator
+│   ├── health/                # Terminus health controller/module
+│   ├── app.module.ts          # Root Nest module
+│   └── main.ts                # Bootstrap (CORS, validation, logging)
+├── package.json               # Scripts (start, start:dev, build, test)
+├── tsconfig*.json             # TypeScript configs
+└── .env*                      # Environment files per NODE_ENV
 ```
 
 ### State Management Architecture
@@ -171,7 +170,7 @@ backend/turing/
 
 - `frontend/config/app-config.yaml` now serves as a fallback when the REST room API is unavailable; by default rooms load from the backend.
 - `frontend/src/lib/config/config.ts` exposes a typed singleton (empty rooms array by default) to preserve compatibility with older flows.
-- Backend configuration is primarily environment-driven (`application.properties` + profiles) covering MQTT, Redis, Postgres, JWT, and quota toggles.
+- Backend configuration is environment-driven via Nest ConfigModule loading `.env` files (per `NODE_ENV`) and environment variables for MQTT, Redis, Postgres, JWT, WebSocket, and quota toggles.
 - Feature flags for quota rollouts (`QUOTA_ENABLED`, `QUOTA_ROLLOUT_PERCENTAGE`, `QUOTA_ENABLED_HOUSEHOLDS`) allow staged deployments.
 
 ### Environment Configuration
@@ -187,15 +186,14 @@ NEXT_PUBLIC_APP_CONFIG_PATH=/custom/path/to/config.yaml          # Optional fall
 NODE_ENV=development
 ```
 
-**Backend** (`backend/turing/src/main/resources/application*.properties` or environment variables):
-- `SERVER_PORT` (default `8081`)
-- MQTT: `MQTT_BROKER_URL`, `MQTT_BROKER_PORT`, `MQTT_BROKER_USERNAME`, `MQTT_BROKER_PASSWORD`, `MQTT_BASE_TOPIC`
-- Database (R2DBC/Postgres): `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, plus pool tuning knobs
-- Flyway: `FLYWAY_URL`, `FLYWAY_USER`, `FLYWAY_PASSWORD`
-- Redis (quota cache): `QUOTA_REDIS_HOST`, `QUOTA_REDIS_PORT`, `QUOTA_REDIS_PASSWORD`
-- Security: `JWT_SECRET`, `JWT_EXPIRATION`
-- Quota toggles: `QUOTA_ENABLED`, `QUOTA_ROLLOUT_PERCENTAGE`, `QUOTA_ENFORCEMENT_ENABLED`, etc.
-- Observability: `PROMETHEUS_ENABLED`, `LOG_LEVEL`, `SERVICE_LOG_LEVEL`
+**Backend** (`backend/.env*` or environment variables):
+- Server: `PORT` or `SERVER_PORT` (default `8081`), `NODE_ENV`, `SERVER_CONTEXT_PATH`
+- MQTT: `MQTT_BROKER_URL` (or `MQTT_BROKER_HOST` + `MQTT_BROKER_PORT`), `MQTT_BROKER_USERNAME`, `MQTT_BROKER_PASSWORD`, `MQTT_BASE_TOPIC`, reconnect/keepalive knobs
+- Database (Postgres/TypeORM): `DATABASE_URL` or `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, plus pool tuning knobs
+- Redis (quota cache): `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, and quota-specific `QUOTA_REDIS_HOST`, `QUOTA_REDIS_PORT`, `QUOTA_REDIS_PASSWORD`
+- Security/JWT: `JWT_SECRET`, `JWT_EXPIRES_IN` or `JWT_EXPIRATION`, `JWT_AUDIENCE`, `JWT_ISSUER`, `BCRYPT_ROUNDS`
+- Quota toggles: `QUOTA_ENABLED`, `QUOTA_ROLLOUT_PERCENTAGE`, `QUOTA_ENFORCEMENT_ENABLED`, and related `quota.*` settings
+- Observability: enable health via Terminus; logging via Nest logger and environment log levels
 
 **Security Notes**:
 - Never commit `.env*` files or secrets; use platform secret managers for production deployments.
@@ -224,10 +222,9 @@ Zod schemas for each topic live in `frontend/src/lib/mqtt/mqtt-config.ts`, ensur
 
 **Base URL**: `ws://localhost:8081/ws/{feature}?{context-params}` (JWT token required in query string)
 
-#### Air Conditioner Control
+#### Air Conditioner Control (planned in backend)
 - **URL**: `/ws/airconditioner`
-- **Handler**: `AirConditionerWebSocketHandler`
-- **Package**: `com.ashelabs.turing.websocket.airconditioner`
+- **Gateway**: NestJS WebSocket Gateway (Socket.IO)
 - **Query Parameters**:
   - `roomId` – Room identifier for session subscription
   - `familyMemberId` – Authenticated household member ID
@@ -236,10 +233,9 @@ Zod schemas for each topic live in `frontend/src/lib/mqtt/mqtt-config.ts`, ensur
 **Message Types**: AirConditionerInboundMessage, AirConditionerOutboundMessage
 **Commands**: SetTemperature, SetMode, SetFanSpeed, SetPower, SetSwing, GetStatus, plus telemetry broadcasts
 
-#### Quota Management
+#### Quota Management (planned in backend)
 - **URL**: `/ws/quota`
-- **Handler**: `QuotaWebSocketHandler`
-- **Package**: `com.ashelabs.turing.websocket.quota`
+- **Gateway**: NestJS WebSocket Gateway (Socket.IO)
 - **Query Parameters**:
   - `quotaId` – Quota identifier (daily-limit, emergency, etc.)
   - `roomId` – Room identifier associated with the quota
@@ -258,19 +254,18 @@ Zod schemas for each topic live in `frontend/src/lib/mqtt/mqtt-config.ts`, ensur
 - **Feature**: `/{feature}` – Capability (airconditioner, quota, future device modules)
 - **Context**: `?{params}` – JWT and scope parameters for the session
 
-**1:1:1 Mapping**:
+**1:1:1 Mapping (planned)**:
 ```
-URL Path              Handler Class                            Package
-───────────────────── ──────────────────────────────────────── ───────────────────────────────────────────
-/ws/airconditioner → AirConditionerWebSocketHandler          → websocket/airconditioner/
-/ws/quota          → QuotaWebSocketHandler                   → websocket/quota/
+URL Path              Gateway File
+───────────────────── ─────────────────────────────────────────
+/ws/airconditioner → src/airconditioner/airconditioner.gateway.ts
+/ws/quota          → src/quota/quota.gateway.ts
 ```
 
-**Adding New Endpoints**:
-1. Implement a handler extending `BaseWebSocketHandler` in `websocket/{feature}` with command registrations.
-2. Register the handler in `WebSocketConfig` (and companion profile-specific configs if needed).
-3. Decorate with `WebSocketJwtAuthHandler` when authentication is required.
-4. Expose client utilities in `frontend/src/lib/websocket` and surface selectors/stores for UI consumption.
+**Adding New Endpoints** (backend):
+1. Implement a NestJS WebSocket Gateway (e.g., `*.gateway.ts`) and register it in the corresponding module.
+2. Secure with Nest guards for JWT validation across HTTP and WebSocket contexts.
+3. Expose client utilities in `frontend/src/lib/websocket` and surface selectors/stores for UI consumption.
 
 ## Clean Code Standards
 
@@ -435,10 +430,11 @@ Score: (Sum/6) → Decision Threshold: >3.5 to adopt
     - Stores: kebab-case with suffix (`room-store.ts`, `quota-store.ts`, `auth-store.ts`)
     - Types: PascalCase (`RoomDevice`, `QuotaUpdate`, `AirConState`)
   - **Backend**:
-    - Controllers: `*Controller.java` (`RoomController`, `QuotaController`)
-    - Services: `*Service.java` (`QuotaService`, `UsageService`)
-    - Repositories: `*Repository.java` (`RoomRepository`, `DeviceRepository`)
-    - Domain: PascalCase (`QuotaAggregate`, `RoomEntity`)
+    - Controllers: `*.controller.ts` (e.g., `room.controller.ts`)
+    - Services: `*.service.ts` (e.g., `quota.service.ts`)
+    - Entities/Models: `*.entity.ts` (e.g., `room.entity.ts`)
+    - Gateways: `*.gateway.ts` (e.g., `quota.gateway.ts`)
+    - Modules: `*.module.ts` (e.g., `quota.module.ts`)
 
 **5. No Logic Duplication Across Files**
 - If logic is moved or refactored:
@@ -458,10 +454,10 @@ Score: (Sum/6) → Decision Threshold: >3.5 to adopt
   4. Build: `pnpm build`
 
   **Backend**:
-  1. Compilation: `./mvnw clean compile`
-  2. Tests: `./mvnw test`
-  3. Integration tests: `./mvnw verify`
-  4. Package: `./mvnw package`
+  1. Install deps: `pnpm install`
+  2. Build: `pnpm build`
+  3. Tests: `pnpm test`
+  4. E2E: `pnpm test:e2e`
 
 - If **ANY** validation fails:
   - **STOP** immediately
@@ -508,22 +504,125 @@ Score: (Sum/6) → Decision Threshold: >3.5 to adopt
   - Server actions for config bootstrapping
 
   **Backend**:
-  - Layered architecture: domain → service → controller
-  - Reactive WebSocket handlers with command pattern
-  - R2DBC for async database access
-  - Flyway for schema migrations
-  - Redis for quota caching
-  - JWT-based authentication for REST and WebSocket endpoints
+  - NestJS modular architecture: modules → controllers → providers (services) → gateways
+  - Socket.IO gateways for WebSocket communication (planned in backend)
+  - TypeORM for Postgres access
+  - Redis (ioredis) for quota caching
+  - JWT-based authentication for REST and WebSocket endpoints (via guards)
 
 - **DO NOT** introduce new patterns without architectural justification and approval
 
 ## Code Quality Standards
 
 ### TypeScript Guidelines
-- **Strict Mode**: Project uses strict TypeScript configuration
-- **Type Safety**: Prefer explicit types over `any` or `unknown`
-- **Zod Integration**: Use Zod schemas for runtime validation and type inference
-- **No Unused Imports**: Remove unused imports and variables
+These rules apply to both `frontend/` (Next.js/React) and `backend/` (NestJS). Type safety is the top priority and must be enforced during authoring and code generation.
+
+**Tsconfig Baseline (Strict-First)**
+- Enable strict suite: `"strict": true`, `"alwaysStrict": true`, `"noImplicitAny": true`, `"noImplicitThis": true`, `"strictNullChecks": true`, `"strictBindCallApply": true`, `"strictFunctionTypes": true`.
+- Strengthen optional/nullish safety: `"exactOptionalPropertyTypes": true`, `"noUncheckedIndexedAccess": true`, `"useUnknownInCatchVariables": true`.
+- API clarity and control flow: `"noImplicitReturns": true`, `"noFallthroughCasesInSwitch": true`, `"noImplicitOverride": true`, `"noPropertyAccessFromIndexSignature": true`.
+- Module hygiene: `"verbatimModuleSyntax": true`, `"importsNotUsedAsValues": "error"`, `"forceConsistentCasingInFileNames": true`, `"isolatedModules": true`.
+- Project ergonomics: `"skipLibCheck": true` (build-only), appropriate `"jsx"`, `"target"`, and `"moduleResolution"` per app tooling.
+
+**Non‑Negotiable Typing Rules**
+- Never use `any`. Prefer `unknown` for untyped values and narrow before use.
+- Do not use non-null assertions (`!`) except in localized, provably safe interop with a brief comment.
+- Avoid broad `as` assertions. Prefer type guards, `satisfies`, and inference-preserving patterns.
+- Public exports must have explicit types: exported functions, classes, constants, and module boundaries.
+- Avoid `Function`, `object`, `{}` as types. Use precise callable/object types or generics with constraints.
+- Use `import type` for type-only imports; keep value vs type namespaces clean with `"verbatimModuleSyntax": true`.
+
+**Null, Optional, and Exactness**
+- With `"strictNullChecks": true`, include `| null` or `| undefined` explicitly where needed; do not rely on falsy semantics.
+- With `"exactOptionalPropertyTypes": true`, remember `prop?: T` means absent-or-`T`. If `undefined` is valid, spell it: `prop?: T | undefined`.
+- Prefer `Readonly<T>` and `readonly` fields to encode immutability at the type level.
+
+**Objects, Shapes, and APIs**
+- Prefer `type` aliases for unions, mapped types, and utilities; prefer `interface` for extendable object shapes or declaration merging. Be consistent within a module.
+- Model variant data as discriminated unions with a stable `kind`/`type` tag and enforce exhaustive checks via a `never` check in default branches.
+- Avoid open index signatures. If unavoidable, include `undefined` handling and leverage `"noUncheckedIndexedAccess": true` to force presence checks.
+
+**Unions, Narrowing, and Guards**
+- Narrow unions using `typeof`, `instanceof`, `in`, and user-defined type predicates (`v is X`).
+- When handling `unknown`, narrow before use; never access properties or call before a guard.
+- Use truthiness checks only for existence; don’t conflate `""`, `0`, or `false` with missing.
+
+**Generics and Constraints**
+- Constrain generics for soundness: `function f<T extends Foo>(arg: T)`; avoid unconstrained generics flowing into external calls.
+- Provide default generic parameters where appropriate: `function f<T = Default>(x?: T)`.
+- Be mindful of parameter bivariance in callbacks; use precise function types for safety-critical callbacks.
+- Package generic aliases: ALWAYS create explicit type aliases for package generics to improve readability and refactoring safety. For example:
+  ```ts
+  import type { Repository } from 'typeorm';
+  import type { QuotaEntity } from './quota.entity';
+  export type QuotaRepository = Repository<QuotaEntity>;
+  ```
+
+**Collections and Indexing**
+- Prefer `readonly T[]` or `ReadonlyArray<T>` for inputs; use mutable arrays only where mutation is required.
+- Use `Record<K, V>` for dictionary-like shapes where keys are known (`K extends string | number | symbol`).
+- With `"noUncheckedIndexedAccess": true`, handle `arr[i]` and `record[key]` as possibly `undefined`—narrow before use.
+
+**Enums, Literals, and Branding**
+- Prefer union-of-literals (`'A' | 'B'`) over `enum` for zero-cost types; map values with `const` objects and `keyof typeof`.
+- If using enums, prefer standard enums unless the build inlines `const enum` safely.
+- Brand primitives to prevent ID mixing: `type UserId = string & { readonly [Brand]: 'UserId' }` with `declare const Brand: unique symbol`.
+
+**String, Keys, and Mapped Types**
+- Use `keyof` and indexed access types (`T[K]`) where applicable.
+- Use template literal types to constrain string patterns, e.g., ``type ISODate = `${number}-${number}-${number}```.
+- Use mapped type modifiers (`+readonly`, `-readonly`, `-?`) for precise transforms.
+
+**Async, Errors, and Results**
+- Type async APIs as `Promise<T>`; avoid implicit `any` in `await` chains.
+- With `"useUnknownInCatchVariables": true`, narrow `catch (e: unknown)` via `instanceof Error` or custom guards.
+- Prefer explicit results (`Result<T, E>` or discriminated unions) for library boundaries over throwing.
+
+**React/Zustand/Rx (frontend)**
+- Component props must have explicit `Props` types; use `PropsWithChildren` only when children are intended.
+- Contexts: `createContext<T | null>` with a `useX()` hook that throws if missing; avoid unchecked `as` on `useContext`.
+- Zustand selectors must be stable/minimal; avoid selecting entire store objects. Stream values in RxJS are never `any`; validate inputs at IO boundaries.
+
+**NestJS/Node (backend)**
+- Controllers/services must have explicit DTO types at boundaries. Use `readonly` in entities where appropriate and narrow `unknown` inputs via pipes/validators.
+- Use DTOs for all request and response data across REST and WebSocket boundaries.
+- Requests: define DTOs for `body`, `params`, and `query`; do not type against raw objects.
+- Responses: return explicit DTOs; do not return entities or internal models directly.
+- Validate DTOs with `class-validator` and `ValidationPipe`; transform to domain types in services.
+- Version DTOs when contracts change; add new DTOs instead of breaking existing ones.
+- Exclude sensitive fields in DTOs; never expose secrets or internal-only identifiers.
+- Avoid leaking untyped `req.body`/`any`; validate with class-validator/Zod and transform to domain types.
+
+**Runtime Validation and IO Boundaries**
+- All external inputs (network, storage, websocket, MQTT) are `unknown` at runtime. Validate with Zod (or Nest pipes) and derive types via `z.infer<typeof Schema>`.
+- Separate “wire” types from “domain” types; transform once at the boundary.
+
+**Satisfies, Const, and Inference-Preserving Patterns**
+- Use `satisfies` to validate object shapes while preserving literal types: `const cfg = { mode: 'cool' } satisfies Config`.
+- Use `as const` to freeze literals into narrow types (readonly tuples, exact string literals).
+
+**Overloads and Public APIs**
+- Prefer overloads for user-facing API ergonomics; use one implementation signature with precise return unions.
+- Exported functions should explicitly annotate returns—don’t rely on inference across package boundaries.
+
+**Interop and Declarations**
+- Augment modules via module augmentation, not globals. Avoid ambient declarations where possible.
+- For untyped libraries, isolate unsafe areas with minimal `d.ts` or wrapper modules that narrow to safe return types.
+
+**Utility Types (Use Judiciously)**
+- Prefer standard utilities: `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `NonNullable`, `ReturnType`, `Parameters`, `InstanceType`.
+- Build custom mapped utilities only when necessary and proven correct.
+
+**Code Generation Rules**
+- Generated code must not include `any` or non-null assertions. If unavoidable at an IO boundary, generate validation + narrowing code alongside.
+- Use `import type`, `satisfies`, and `as const` where appropriate. Generate exhaustive `switch` with a `never` check for discriminated unions.
+
+**Review Checklist**
+- Are all exports explicitly typed? Any `any`, `!`, or broad `as` left?
+- Are unions narrowed and switches exhaustive (`never` check present)?
+- Are optionals modeled with exactness (`exactOptionalPropertyTypes`)?
+- Are collections readonly by default? Are generics constrained and defaults provided where relevant?
+- Are IO boundaries validated and separated from domain types? Are type-only imports used correctly?
 
 ### Frontend Standards
 - **ESLint**: Follow Next.js ESLint configuration (`pnpm lint`)
@@ -858,11 +957,186 @@ const [value1, value2, method] = useStore(apiAirconStore,
 5. **Previous state tracking** - Use `useRef` to avoid stale closure issues in useEffect
 
 ### Backend Standards  
-- **Java Conventions**: Follow standard Java naming conventions
-- **Lombok Usage**: Use Lombok annotations to reduce boilerplate
-- **Spring Patterns**: Follow Spring Boot best practices
-- **Error Handling**: Use proper exception handling and HTTP status codes
-- **Testing**: Write unit tests for all business logic
+- **Node/TypeScript Conventions**: Follow NestJS and TypeScript best practices
+- **Nest Patterns**: Use modules, controllers, providers (services), and gateways appropriately
+- **Error Handling**: Use HTTP exceptions/filters and consistent status codes
+- **Testing**: Write Jest unit tests for business logic and E2E tests where appropriate
+
+#### NestJS Conventions & Best Practices
+- Modules
+  - Organize by feature: create one `*.module.ts` per domain (e.g., `rooms`, `devices`, `quota`).
+  - Keep module boundaries clear: export only what other modules need via `exports`.
+  - Prefer feature imports over global scope; use `@Global()` sparingly for cross-cutting concerns.
+  - Re-export shared modules from a `CoreModule` when many features depend on them.
+  - Use dynamic modules (`forRoot/forRootAsync`) for configurable libraries and infrastructure.
+- Providers & DI
+  - Inject dependencies via constructors; avoid manually instantiating classes.
+  - Default scope is singleton; use request/transient scope only when justified.
+  - Use explicit tokens for interface-like contracts; favor factory providers for config-heavy services.
+  - Register global concerns with `APP_GUARD`, `APP_INTERCEPTOR`, `APP_FILTER`, `APP_PIPE`.
+- Controllers
+  - Keep controllers thin: delegate logic to services.
+  - Validate inputs with DTOs + `class-validator`; enable a global `ValidationPipe`.
+  - Use route versioning and clear HTTP semantics (status codes, exceptions).
+- Guards, Pipes, Interceptors, Filters, Middleware
+  - Guards: authorization/authn; Pipes: transform/validate; Interceptors: cross-cutting (logging, caching, timing); Filters: map errors.
+  - Register globally when behavior is app-wide; otherwise prefer decorator-scoped usage.
+  - Be mindful of execution order: middleware → guards → interceptors → pipes → controller → interceptors (after) → filters.
+- Configuration
+  - Use `@nestjs/config` with schema validation; avoid direct `process.env` access outside config.
+  - Load per-env `.env` files; access via `ConfigService` and config namespaces.
+  - Centralize security secrets and connection strings; never hardcode.
+- WebSockets (Socket.IO)
+  - Implement namespaced gateways (`*.gateway.ts`) with DTO validation pipes.
+  - Secure with JWT guards for handshakes; configure CORS and transport explicitly.
+  - Scale with the Redis adapter when running multiple instances.
+- Persistence (TypeORM)
+  - Inject repositories via `@InjectRepository`; keep entities simple and migration-friendly.
+  - Disable `synchronize` in non-dev; prefer migrations for schema changes.
+  - Encapsulate transactions in services; avoid leaking ORM details to controllers.
+- Redis (ioredis)
+  - Provide clients via DI tokens; reuse connections and implement health checks.
+  - Use separate logical databases or prefixes for quota vs. general caching.
+- Testing
+  - Unit: test services/controllers with mocks; avoid hitting real IO.
+  - E2E: use `@nestjs/testing` + Supertest; spin up app with test config.
+  - Favor TestingModule for integration-level wiring; isolate external dependencies.
+- Caching & Throttling
+  - Use CacheModule/Cache Interceptor for idempotent GET endpoints; set TTLs from config.
+  - Apply `@nestjs/throttler` for rate limiting on public endpoints.
+- Structure & Boundaries
+  - Group by feature folders; place `*.module.ts`, `*.controller.ts`, `*.service.ts`, `*.entity.ts` together.
+  - Put cross-cutting infrastructure under `shared/` and configuration under `common/config/`.
+- Security
+  - Use bcrypt rounds from config; never log secrets.
+  - Enforce CORS from config; sanitize error responses in filters.
+- Observability & Performance
+  - Use interceptors for request logging/metrics; expose Terminus `/health` probes.
+  - Tune database pools and Redis retries from config; add timeouts/circuit breakers where needed.
+
+##### NestJS Code Examples
+```ts
+// main.ts — Global ValidationPipe, CORS, and logging
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }));
+  app.enableCors({ origin: '*', credentials: false });
+  await app.listen(process.env.PORT || 8081);
+}
+bootstrap();
+```
+
+```ts
+// dynamic-redis.module.ts — Dynamic module with forRootAsync
+import { Module, Global, DynamicModule } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
+
+@Global()
+@Module({})
+export class DynamicRedisModule {
+  static forRootAsync(): DynamicModule {
+    return {
+      module: DynamicRedisModule,
+      imports: [ConfigModule],
+      providers: [
+        {
+          provide: 'REDIS_CLIENT',
+          useFactory: (config: ConfigService) => new Redis({
+            host: config.get('redis.host'),
+            port: config.get('redis.port'),
+            password: config.get('redis.password'),
+          }),
+          inject: [ConfigService],
+        },
+      ],
+      exports: ['REDIS_CLIENT'],
+    };
+  }
+}
+```
+
+```ts
+// quota.gateway.ts — Socket.IO Gateway with JWT guard
+import { UseGuards } from '@nestjs/common';
+import { WebSocketGateway, WebSocketServer, SubscribeMessage, MessageBody } from '@nestjs/websockets';
+import { Server } from 'socket.io';
+
+@UseGuards(JwtWsGuard)
+@WebSocketGateway({ namespace: '/ws/quota', cors: { origin: '*' }, transports: ['websocket'] })
+export class QuotaGateway {
+  @WebSocketServer() server: Server;
+
+  @SubscribeMessage('subscribe')
+  handleSubscribe(@MessageBody() dto: SubscribeDto) {
+    // validate dto with pipes, join rooms, emit snapshots, etc.
+  }
+}
+```
+
+```ts
+// quota.service.ts — TypeORM repository injection
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { QuotaEntity } from './quota.entity';
+
+@Injectable()
+export class QuotaService {
+  constructor(@InjectRepository(QuotaEntity) private readonly repo: Repository<QuotaEntity>) {}
+
+  findById(id: string) {
+    return this.repo.findOne({ where: { id } });
+  }
+}
+```
+
+```ts
+// app.module.ts — Global guard registration
+import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+
+@Module({
+  providers: [
+    { provide: APP_GUARD, useClass: JwtHttpGuard },
+  ],
+})
+export class AppModule {}
+```
+
+```ts
+// e2e.spec.ts — E2E test with TestingModule + Supertest
+import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from '../src/app.module';
+
+describe('App E2E', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('GET /health', async () => {
+    await request(app.getHttpServer()).get('/health').expect(200);
+  });
+});
+```
 
 ### File Naming Conventions
 - **React Components**: PascalCase (e.g., `AirConRemote.tsx`)
@@ -908,6 +1182,17 @@ docs/specs/[feature-name]/
   - **Design Pattern Analysis**:
     - Evaluate applicable design patterns (Strategy, Observer, Factory, Adapter, etc.)
     - Perform trade-off analysis between different architectural approaches
+  - **NestJS Implementation Research & Comparison**:
+    - Research 2–3 viable approaches for each decision (e.g., Repository vs. Active Record; Guards vs. Interceptors vs. Middleware; Providers vs. Factories; module vs. feature organization; sync vs. async config)
+    - Use a trade-off matrix to compare options:
+      ```
+      Approach            | Performance | Maintainability | Testability | Complexity | Use Case Fit
+      --------------------|-------------|-----------------|------------|------------|-------------
+      Repository Pattern  | High        | High            | High       | Medium     | Complex queries
+      Active Record       | Medium      | Medium          | Low        | Low        | Simple CRUD
+      Custom Provider     | High        | Medium          | High       | High       | Specialized logic
+      ```
+    - Document decision rationale with concrete code examples of the chosen pattern(s)
     - Justify pattern selection with pros/cons and use case alignment
     - Consider maintainability, testability, and scalability implications
   - **Architecture Quality Assessment**:
@@ -974,34 +1259,34 @@ docs/specs/[feature-name]/
 ## Development Guidelines
 
 ### Adding New Rooms
-1. Provision the room through the backend API (`RoomController`) or via the admin UI – the frontend consumes REST responses rather than static YAML.
+1. Provision the room through the backend API (Nest controller) or via the admin UI – the frontend consumes REST responses rather than static YAML.
 2. Ensure the MQTT topic mapping for any new device is defined on both sides:
-   - Backend: update the appropriate mapper in `domain/device` or `infrastructure/protocol` so commands route to the correct topic.
+   - Backend: update the appropriate mapper/service so commands route to the correct topic.
    - Frontend: extend `frontend/src/lib/mqtt/mqtt-config.ts` (or the dynamic mapping service if introduced) with the new topic constants and validation schema entries.
 3. Synchronize types by updating `frontend/src/types/room.ts` and any related Zod validators.
-4. Add or adjust Flyway migrations plus seed data when a new room requires persistence defaults.
+4. If persistence defaults are needed, add TypeORM migrations and seed data accordingly.
 5. Exercise `room-store.fetchRooms()` and the REST integration tests to verify CRUD paths.
 
 ### Extending AC Controls
 1. Expand `MQTT_TOPICS`, `VALID_VALUES`, and `mqttMessageSchemas` in `frontend/src/lib/mqtt/mqtt-config.ts` for the new capability.
 2. Update `api-aircon-store` and related stores to emit the new command/state fields and expose stable selectors.
 3. Introduce UI affordances inside `frontend/src/components/AirConRemote.tsx` or the quota-aware wrappers, ensuring touch targets remain ≥44px.
-4. Queue backend work: add command handling in `com.ashelabs.turing.websocket.airconditioner` and register new command names in the handler's registry.
+4. Queue backend work: add command handling in a NestJS WebSocket Gateway (planned in backend) and register new command names.
 5. Extend the REST API (if needed) so analytics and history endpoints surface the additional data – remember to cover it with controller/service tests.
 
 ### Working with MQTT & WebSocket Clients
 - MQTT bootstraps in `frontend/src/lib/mqtt/mqtt-client.ts`; reuse the exported singleton through `AirconProvider` to avoid duplicate connections.
 - Device telemetry now flows through `DeviceWebSocketProvider`. Never access the raw store directly—select methods via `useShallow` selectors to prevent render loops.
 - Quota messaging lives in `frontend/src/lib/quota/quota-websocket.tsx`; throttle reconnection attempts using the provided `forceReconnect` helper rather than rebuilding your own socket logic.
-- When adding a new WebSocket channel, follow the command pattern in `backend/turing/src/main/java/com/ashelabs/turing/websocket/core` and surface a typed hook under `frontend/src/lib/websocket`.
+- When adding a new WebSocket channel, implement a NestJS Gateway (e.g., `*.gateway.ts`) and surface a typed hook under `frontend/src/lib/websocket`.
 
 ### Authentication & Authorization
 - Auth flows are centralized in `frontend/src/lib/auth`; extend token acquisition or refresh logic there so both Axios and WebSocket clients inherit the change.
-- Backend JWT validation occurs in `WebSocketJwtAuthHandler` and the REST security filters—update both if the token shape changes.
+- Backend JWT validation occurs via Nest guards/middleware across HTTP and WebSocket contexts—update both if the token shape changes.
 - Keep `AuthProvider` selectors narrow when exposing new actions to avoid re-render storms.
 
 ### Quota System Enhancements
-- Quota configuration lives in `backend/turing/src/main/resources/application-quota.yml` and the associated service classes; adjust feature flags using environment variables for local testing.
+- Quota configuration is defined via environment variables consumed in `backend/src/common/config/quota.config.ts`; adjust feature flags using environment variables for local testing.
 - Mirror new quota payload fields in `frontend/src/stores/quota-store.ts` and extend the Zod schema in `quota-websocket.tsx`.
 - Use `scripts/manual-quota-testing.sh` to simulate publish/subscribe flows before wiring the UI.
 
@@ -1017,7 +1302,11 @@ nc -vz ${MQTT_BROKER_URL:-localhost} 1883
 # Confirm WebSocket bridge (Mosquitto with websocket listener)
 nc -vz ${MQTT_BROKER_URL:-localhost} 9001
 ```
-- Ensure backend devices are subscribing to the same base topic defined in `application.properties` (`mqtt.base-topic`).
+- Verify frontend environment variable
+```bash
+echo $NEXT_PUBLIC_MQTT_BROKER_URL
+```
+- Ensure backend devices are subscribing to the same base topic defined by `MQTT_BASE_TOPIC`.
 - If TLS is required, configure the `mqtt-client.ts` options and backend environment variables accordingly.
 
 **WebSocket Issues**:
@@ -1029,24 +1318,105 @@ nc -vz ${MQTT_BROKER_URL:-localhost} 9001
 - Stale caches: clear the in-memory caches exposed by API clients using their `clearCache` helpers (where available) or reload the store by calling `fetchRooms`/`refreshDevices`.
 - Zustand selector loops: confirm you're selecting primitives or memoized callbacks only; refer to `unified-room-selectors` for patterns.
 - Service worker conflicts: run `pnpm dev --turbo` with `ServiceWorkerCleaner` rendered to purge stale Serwist registrations.
+- Type errors: run type checking (`pnpm exec tsc --noEmit`).
+- MQTT messages not received: verify topic subscriptions in the browser console and confirm mapping in `frontend/src/lib/mqtt/mqtt-config.ts`.
 
 **Backend Issues**:
-- Database connectivity: ensure Postgres is reachable at the R2DBC URL (`r2dbc:postgresql://...`) and that Flyway migrations have executed.
+- Database connectivity: ensure Postgres is reachable and TypeORM connection settings match env; run migrations if applicable.
 - Redis quota cache: `redis-cli -h ${QUOTA_REDIS_HOST:-localhost} ping` verifies availability; quota updates depend on it.
-- MQTT session churn: check logs under `com.ashelabs.turing.websocket` and `org.eclipse.paho` for reconnect storms; tune `MQTT_RECONNECT_*` variables as needed.
-- For failing reactive flows, enable `logging.level.reactor.netty=DEBUG` temporarily to capture transport diagnostics.
+- MQTT session churn: inspect Nest application logs for reconnect storms; tune `MQTT_RECONNECT_*` variables as needed.
+- WebSocket connectivity: validate Socket.IO transport and CORS via Nest logger; confirm JWT guard behavior if enabled.
 
 **Development Tools**:
 - React DevTools and Zustand Inspector for store analysis
 - MQTT Explorer (or command-line `mosquitto_sub`) for topic validation
 - `wscat`, Insomnia, or Postman for WebSocket testing
 - RedisInsight / `redis-cli monitor` for quota cache activity
-- Spring Boot Actuator (`http://localhost:8081/actuator/health`, `/actuator/metrics`) for service health and metrics
+- Terminus health endpoints (`http://localhost:8081/health`, `/health/database`, `/health/redis`, `/health/mqtt`) for service health
 
 ### Logging and Monitoring
 - Frontend: set `localStorage.setItem('debug', 'mqtt*')` for verbose MQTT logging, and enable Zustand logging utilities in development builds.
-- Backend: leverage Actuator health checks plus Prometheus endpoint (`/actuator/prometheus`). Adjust log levels via `LOG_LEVEL`/`SERVICE_LOG_LEVEL` environment variables without redeploying.
+- Backend: leverage Terminus health checks. Adjust log levels via environment and Nest logger configuration.
 - Use the performance monitors in `frontend/src/lib/performance` to profile WebSocket latency and render timelines; tests live alongside the monitors for regression coverage.
+
+## Error Handling Patterns
+
+### MQTT stream errors (RxJS)
+```ts
+import { catchError, of, retry } from 'rxjs';
+
+airconStream$
+  .pipe(
+    catchError((error) => {
+      console.error('MQTT stream error:', error);
+      return of(null); // safe fallback
+    }),
+    retry({ count: 3, delay: 1000 })
+  )
+  .subscribe();
+```
+
+### Zod validation failures
+```ts
+const result = mqttMessageSchema.safeParse(message);
+if (!result.success) {
+  console.error('Invalid MQTT message:', result.error);
+  // Do not update state on invalid data
+  return;
+}
+```
+
+### React error boundaries
+```tsx
+<ErrorBoundary fallback={<MqttConnectionError />}>
+  <AirConRemote />
+</ErrorBoundary>
+```
+
+### NestJS exception handling
+```ts
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const res = ctx.getResponse<Response>();
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'Internal server error';
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      message = exception.message;
+    }
+    res.status(status).json({ statusCode: status, message, timestamp: new Date().toISOString() });
+  }
+}
+```
+
+## Security Best Practices
+
+### MQTT security
+- Use username/password for MQTT; prefer WSS for production.
+- Restrict topic access by role; apply connection rate limiting.
+
+### Environment security
+- Never hardcode credentials; isolate per environment; restrict `.env` access.
+- Use a secret manager (Docker secrets or vault) in production.
+
+### Frontend security
+- Configure CSP headers; serve over HTTPS; validate inputs with Zod; sanitize dynamic content.
+
+### API security
+- Configure CORS appropriately; apply rate limiting; validate all incoming requests; avoid leaking sensitive info in errors.
+
+## Performance Guidelines
+
+### Frontend optimization
+- Analyze bundles; code split non-critical components; debounce/throttle rapid MQTT-driven updates; memoize expensive components.
+
+### MQTT performance
+- Keep payloads small; unsubscribe when unused; reuse connections; batch rapid state updates to reduce rerenders.
+
+### Backend performance
+- Tune DB pools; cache hot paths in Redis; use async processing; use Socket.IO rooms/namespaces efficiently.
 
 ## Important Implementation Details
 
