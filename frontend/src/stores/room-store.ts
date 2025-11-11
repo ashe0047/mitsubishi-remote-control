@@ -16,6 +16,38 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { roomApiClient } from "@/lib/api/room-api-client";
+
+// SSR-safe localStorage wrapper
+const isClient = typeof window !== 'undefined';
+
+const safeLocalStorage = {
+	getItem: (key: string): string | null => {
+		if (!isClient) return null;
+		try {
+			return localStorage.getItem(key);
+		} catch {
+			return null;
+		}
+	},
+	setItem: (key: string, value: string): boolean => {
+		if (!isClient) return false;
+		try {
+			localStorage.setItem(key, value);
+			return true;
+		} catch {
+			return false;
+		}
+	},
+	removeItem: (key: string): boolean => {
+		if (!isClient) return false;
+		try {
+			localStorage.removeItem(key);
+			return true;
+		} catch {
+			return false;
+		}
+	},
+};
 import type {
 	Room,
 	CreateRoomRequest,
@@ -275,7 +307,7 @@ const saveCacheToStorage = (cache: Map<string, CacheEntry<Room>>): void => {
 					: { isStale: true }),
 			},
 		]);
-		localStorage.setItem(CACHE_PERSISTENCE_KEY, JSON.stringify(cacheData));
+		safeLocalStorage.setItem(CACHE_PERSISTENCE_KEY, JSON.stringify(cacheData));
 	} catch (error) {
 		console.warn("Failed to persist cache:", error);
 	}
@@ -283,7 +315,7 @@ const saveCacheToStorage = (cache: Map<string, CacheEntry<Room>>): void => {
 
 const loadCacheFromStorage = (): Map<string, CacheEntry<Room>> => {
 	try {
-		const stored = localStorage.getItem(CACHE_PERSISTENCE_KEY);
+		const stored = safeLocalStorage.getItem(CACHE_PERSISTENCE_KEY);
 		if (!stored) return new Map();
 
 		const cacheData = JSON.parse(stored);
@@ -316,6 +348,7 @@ const predictDeviceState = (
 		vane: currentStatus?.vane,
 		wideVane: currentStatus?.wideVane,
 		roomTemperature: currentStatus?.roomTemperature,
+		timestamp: currentStatus?.timestamp || new Date().toISOString(),
 	};
 
 	switch (action.type) {
@@ -371,6 +404,7 @@ const calculateAggregateStatus = (devices: DeviceInfo[]): AggregateStatus => {
 			totalDevices: 0,
 			onlineDevices: 0,
 			enabledDevices: 0,
+			activeDevices: 0,
 		};
 	}
 
@@ -395,12 +429,21 @@ const calculateAggregateStatus = (devices: DeviceInfo[]): AggregateStatus => {
 			d.currentStatus.mode !== "off"
 	);
 
+	const activeDevices = devices.filter(
+		(d) =>
+			d.online &&
+			d.currentStatus &&
+			d.currentStatus.power === "on" &&
+			d.currentStatus.mode !== "off"
+	).length;
+
 	return {
 		hasActiveDevices,
 		averageTemperature,
 		totalDevices: devices.length,
 		onlineDevices,
 		enabledDevices,
+		activeDevices,
 	};
 };
 
@@ -920,7 +963,7 @@ export const useRoomStore = create<RoomState>()(
 
 				// Create optimistic update
 				const optimisticData = predictDeviceState(
-					device.currentStatus,
+					device.currentStatus || undefined,
 					action
 				);
 				const updateId = get().createOptimisticUpdate({
@@ -938,6 +981,7 @@ export const useRoomStore = create<RoomState>()(
 								temperature: 20,
 								mode: "off",
 								fan: "auto",
+								timestamp: new Date().toISOString(),
 							}
 						);
 					},
@@ -956,12 +1000,13 @@ export const useRoomStore = create<RoomState>()(
 					// Commit optimistic update and apply real data
 					get().commitOptimisticUpdate(updateId);
 
-					if (response.success && response.deviceStatus) {
-						get().updateDeviceStatus(
-							roomId,
-							deviceId,
-							response.deviceStatus
-						);
+					// Update room data if provided in response
+					if (response.updatedRoom) {
+						set((state) => ({
+							rooms: state.rooms.map((room) =>
+								room.id === roomId ? response.updatedRoom! : room
+							),
+						}));
 					}
 
 					// Update success rate
@@ -1201,11 +1246,7 @@ export const useRoomStore = create<RoomState>()(
 				});
 
 				// Clear persisted cache
-				try {
-					localStorage.removeItem(CACHE_PERSISTENCE_KEY);
-				} catch (error) {
-					console.warn("Failed to clear persisted cache:", error);
-				}
+				safeLocalStorage.removeItem(CACHE_PERSISTENCE_KEY);
 			},
 
 			getCacheStats: () => {

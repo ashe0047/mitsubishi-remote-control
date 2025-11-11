@@ -161,11 +161,7 @@ export class RoomApiClient {
 			try {
 				const response = await this.retryRequest(async () => {
 					const axiosResponse = await this.client.get<Room>(
-						`${this.baseUrl}/${roomId}`,
-						{
-							deduplicationKey: cacheKey,
-							priority: "normal",
-						}
+						`${this.baseUrl}/${roomId}`
 					);
 					return axiosResponse.data;
 				});
@@ -468,7 +464,7 @@ export class RoomApiClient {
 	async setDeviceFan(
 		roomId: string,
 		deviceId: string,
-		fan: string
+		fan: "AUTO" | "1" | "2" | "3" | "4" | "QUIET" | "auto" | "low" | "middle" | "medium" | "high" | "diffuse"
 	): Promise<DeviceControlResponse> {
 		return this.controlDevice(roomId, deviceId, {
 			type: "fan",
@@ -487,7 +483,7 @@ export class RoomApiClient {
 	async setDeviceVane(
 		roomId: string,
 		deviceId: string,
-		vane: string
+		vane: "AUTO" | "1" | "2" | "3" | "4" | "5" | "SWING"
 	): Promise<DeviceControlResponse> {
 		return this.controlDevice(roomId, deviceId, {
 			type: "vane",
@@ -506,7 +502,7 @@ export class RoomApiClient {
 	async setDeviceWideVane(
 		roomId: string,
 		deviceId: string,
-		wideVane: string
+		wideVane: "<<" | "<" | "|" | ">" | ">>" | "SWING"
 	): Promise<DeviceControlResponse> {
 		return this.controlDevice(roomId, deviceId, {
 			type: "wideVane",
@@ -604,20 +600,24 @@ export class RoomApiClient {
 		const response = await this.retryRequest(async () => {
 			const axiosResponse = await this.client.post<DeviceControlResponse>(
 				endpoint,
-				payload,
-				{
-					priority: "high",
-				}
+				payload
 			);
 			return axiosResponse.data;
 		});
 
+		// Log the raw response for debugging
+		console.log("[DeviceControl] Raw API response:", JSON.stringify(response, null, 2));
+
 		const responseValidation =
 			RoomValidation.validateDeviceControlResponse(response);
 		if (!responseValidation.success) {
-			console.warn(
-				"Invalid device control response:",
-				responseValidation.errors
+			console.error(
+				"[DeviceControl] Validation failed for response:",
+				JSON.stringify(response, null, 2)
+			);
+			console.error(
+				"[DeviceControl] Validation errors:",
+				JSON.stringify(responseValidation.errors.format(), null, 2)
 			);
 			throw new Error("Invalid device control response format");
 		}
@@ -1112,7 +1112,7 @@ export class RoomApiClient {
 			"Device communication failed";
 		console.warn(`${context} - Device unavailable:`, message);
 
-		if (this.isApiErrorResponse(errorData) && errorData.details) {
+		if (errorData && this.isApiErrorResponse(errorData) && errorData.details) {
 			console.warn("Device error details:", errorData.details);
 		}
 	}
@@ -1132,7 +1132,7 @@ export class RoomApiClient {
 			this.extractErrorMessage(errorData) || "Validation failed";
 		console.error(`${context} - Validation error:`, message);
 
-		if (this.isApiErrorResponse(errorData) && errorData.details) {
+		if (errorData && this.isApiErrorResponse(errorData) && errorData.details) {
 			console.error("Validation details:", errorData.details);
 		}
 	}
@@ -1235,8 +1235,9 @@ export class RoomApiClient {
 	private extractErrorMessage(
 		errorData: Record<string, unknown> | undefined
 	): string | null {
-		if (this.isApiErrorResponse(errorData)) {
-			return errorData.message;
+		if (errorData && this.isApiErrorResponse(errorData)) {
+			const apiErrorResponse = errorData as unknown as ApiErrorResponse;
+			return apiErrorResponse.message;
 		}
 
 		if (errorData && typeof errorData.message === "string") {
