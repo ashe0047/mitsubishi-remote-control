@@ -1,0 +1,13 @@
+export enum OverrideType {
+  ADD_TIME = 'ADD_TIME',
+  UNLOCK_DAY = 'UNLOCK_DAY',
+  EMERGENCY_OVERRIDE = 'EMERGENCY_OVERRIDE',
+}
+
+export enum OverrideStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+}
